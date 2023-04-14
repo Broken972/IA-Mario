@@ -24,7 +24,7 @@ TAILLE_FORM_H = 385
 TAILLE_TILE = 16 -- taille d'une tile DANS LE JEU
 TAILLE_VUE_W = TAILLE_TILE * 11 -- taille de ce que je vois le script
 TAILLE_VUE_H = TAILLE_TILE * 9 
-TAILLE_CAMERA_W = 256 -- du jeu
+TAILLE_CAMERA_W = 256 -- du jeuv
 TAILLE_CAMERA_H = 224 
 NB_TILE_W = TAILLE_VUE_W / TAILLE_TILE -- nombre de tiles scannée par le réseau de neurone en longueur (ça fait 16)
 NB_TILE_H = TAILLE_VUE_H / TAILLE_TILE -- nombre de tiles scannée par le réseau de neurone en largeur  (ça fait 14)
@@ -511,79 +511,93 @@ end
 
 
 
--- retourne un melange des 2 reseaux de neurones
+-- Fonction pour effectuer un croisement entre deux réseaux de neurones
 function crossover(unReseau1, unReseau2)
-	local leReseau = newReseau()
+    local leReseau = newReseau()
 
+    -- Quel est le meilleur des deux ?
+    local leBon, leNul
 
-	-- quel est le meilleur des deux ?
-	local leBon = newReseau()
-	local leNul = newReseau()
+    -- Comparaison des valeurs de fitness pour déterminer le meilleur réseau
+    if unReseau1.fitness > unReseau2.fitness then
+        leBon = unReseau1
+        leNul = unReseau2
+    else
+        leBon = unReseau2
+        leNul = unReseau1
+    end
 
+    -- Le nouveau réseau hérite de la majorité des attributs du meilleur
+    leReseau = copier(leBon)
 
-	leBon = unReseau1
-	leNul = unReseau2
-	if leBon.fitness < leNul.fitness then
-		leBon = unReseau2
-		leNul = unReseau1
-	end
+    -- Sauf pour les connexions où il y a une chance que le nul lui donne ses gènes
+    for i = 1, #leReseau.lesConnexions do
+        for j = 1, #leNul.lesConnexions do
+            -- Si deux connexions partagent la même innovation et que le nul est actif,
+            -- il y a une chance que la connexion du nul vienne remplacer celle du bon
+            local memeInnovation = leReseau.lesConnexions[i].innovation == leNul.lesConnexions[j].innovation
+            local nulActif = leNul.lesConnexions[j].actif
 
-	-- le nouveau reseau va hériter de la majorité des attributs du meilleur
-	leReseau = copier(leBon)
-	
-	-- sauf pour les connexions où y a une chance que le nul lui donne ses genes
-	for i = 1, #leReseau.lesConnexions, 1 do
-		for j = 1, #leNul.lesConnexions, 1 do
-			-- si 2 connexions partagent la meme innovation, la connexion du nul peut venir la remplacer 
-			-- *seulement si nul est actif, sans ça ça créé des neurones hiddens inutiles*
-			if leReseau.lesConnexions[i].innovation == leNul.lesConnexions[j].innovation and leNul.lesConnexions[j].actif then
-				if math.random() > 0.5 then
-					leReseau.lesConnexions[i] = leNul.lesConnexions[j]
-				end
-			end
-		end
-	end
-	leReseau.fitness = 1
-	return leReseau
+            if memeInnovation and nulActif then
+                if math.random() > 0.5 then
+                    leReseau.lesConnexions[i] = leNul.lesConnexions[j]
+                end
+            end
+        end
+    end
+
+    -- Réinitialisation de la valeur fitness du nouveau réseau
+    leReseau.fitness = 1
+    return leReseau
 end
 
 
--- renvoie une copie d'un parent choisis dans une espece
+
+-- Fonction pour choisir un parent dans une espèce en fonction de sa fitness
 function choisirParent(uneEspece)
-	if #uneEspece == 0 then
-		console.log("uneEspece vide dans choisir parent ??")
-	end
-	-- il est possible que l'espece ne contienne qu'un seul reseau, dans ce cas là on va pas plus loin
-	if #uneEspece == 1 then
-		return uneEspece[1]
-	end
+    -- Vérification si l'espèce est vide
+    if #uneEspece == 0 then
+        print("Erreur : uneEspece vide dans choisirParent")
+        return nil
+    end
 
-	local fitnessTotal = 0
-	for i = 1, #uneEspece, 1 do
-		fitnessTotal = fitnessTotal + uneEspece[i].fitness
-	end
-	local limite = math.random(0, fitnessTotal)
-	local total = 0
-	for i = 1, #uneEspece, 1 do
-		total = total + uneEspece[i].fitness
-		-- si la somme des fitness cumulés depasse total, on renvoie l'espece qui a fait depasser la limite
-		if total >= limite then
-			return copier(uneEspece[i])
-		end
-	end
-	console.log("impossible de trouver un parent ?")
-	return nil
+    -- Si l'espèce ne contient qu'un seul réseau, on le retourne directement
+    if #uneEspece == 1 then
+        return uneEspece[1]
+    end
+
+    -- Calcul du total des fitness pour tous les réseaux de l'espèce
+    local fitnessTotal = 0
+    for i = 1, #uneEspece do
+        fitnessTotal = fitnessTotal + uneEspece[i].fitness
+    end
+
+    -- Sélection d'un parent en fonction de la proportion de sa fitness par rapport au total
+    local limite = math.random(0, fitnessTotal)
+    local total = 0
+    for i = 1, #uneEspece do
+        total = total + uneEspece[i].fitness
+
+        -- Si la somme des fitness cumulés dépasse la limite, on retourne le réseau qui a fait dépasser la limite
+        if total >= limite then
+            return copier(uneEspece[i])
+        end
+    end
+
+    print("Erreur : impossible de trouver un parent")
+    return nil
 end
 
 
--- créé une nouvelle generation, renvoie la population créée
--- il faut que les especes soit triée avant appel
+
+-- Crée une nouvelle génération et renvoie la population créée
+-- Les espèces doivent être triées avant l'appel de cette fonction
 function nouvelleGeneration(laPopulation, lesEspeces)
-	local laNouvellePopulation = newPopulation()
-	-- nombre d'indivu à creer au total
-	local nbIndividuACreer = NB_INDIVIDU_POPULATION
-	 -- indice qui va servir à savoir OU en est le tab de la nouvelle espece
-	local indiceNouvelleEspece = 1
+    local laNouvellePopulation = newPopulation()
+    -- Nombre d'individus à créer au total
+    local nbIndividuACreer = NB_INDIVIDU_POPULATION
+    -- Indice qui va servir à savoir où en est le tableau de la nouvelle espèce
+    local indiceNouvelleEspece = 1
 
 	-- il est possible que l'ancien meilleur ait un meilleur fitness
 	-- que celui de la nouvelle population (une mauvaise mutation ça arrive très souvent)
@@ -646,23 +660,25 @@ function nouvelleGeneration(laPopulation, lesEspeces)
 		lesEspeces[i].fitnessMoyenne = lesEspeces[i].fitnessMoyenne / #lesEspeces[i].lesReseaux
 	end
 
-	-- si le level a été terminé au moins une fois, tous les individus deviennent le meilleur, on ne recherche plus de mutation là
-	if leMeilleur.fitness == FITNESS_LEVEL_FINI then
-		for i = 1, #lesEspeces, 1 do
-			for j = 1, #lesEspeces[i].lesReseaux, 1 do
-				lesEspeces[i].lesReseaux[j] = copier(leMeilleur)
-			end
-		end
-		fitnessMoyenneGlobal = leMeilleur.fitness
-	else
-		fitnessMoyenneGlobal = fitnessMoyenneGlobal / nbIndividuTotal
-	end
+	 -- Si le niveau a été terminé au moins une fois, tous les individus deviennent le meilleur,
+    -- on ne recherche plus de mutation là
+    if leMeilleur.fitness == FITNESS_LEVEL_FINI then
+        for i = 1, #lesEspeces do
+            for j = 1, #lesEspeces[i].lesReseaux do
+                lesEspeces[i].lesReseaux[j] = copier(leMeilleur)
+            end
+        end
+        fitnessMoyenneGlobal = leMeilleur.fitness
+    else
+        fitnessMoyenneGlobal = fitnessMoyenneGlobal / nbIndividuTotal
+    end
 
 	--tri des especes pour que les meilleurs place leurs enfants avant tout
 	table.sort(lesEspeces, function (e1, e2) return e1.fitnessMax > e2.fitnessMax end )
 
-	-- chaque espece va créer un certain nombre d'individu dans la nouvelle population en fonction de si l'espece a un bon fitness ou pas
-	for i = 1, #lesEspeces, 1 do
+	-- Chaque espèce va créer un certain nombre d'individus dans la nouvelle population
+    -- en fonction de si l'espèce a un bon fitness ou pas
+    for i = 1, #lesEspeces do
 		local nbIndividuEspece = math.ceil(#lesEspeces[i].lesReseaux * lesEspeces[i].fitnessMoyenne / fitnessMoyenneGlobal)
 		nbIndividuACreer = nbIndividuACreer - nbIndividuEspece
 		if nbIndividuACreer < 0 then
@@ -672,17 +688,17 @@ function nouvelleGeneration(laPopulation, lesEspeces)
 		lesEspeces[i].nbEnfant = nbIndividuEspece
 
 
-		for j = 1, nbIndividuEspece, 1 do
+		for j = 1, nbIndividuEspece do
 			if indiceNouvelleEspece > NB_INDIVIDU_POPULATION then
 				break
 			end
 
 			local unReseau = crossover(choisirParent(lesEspeces[i].lesReseaux), choisirParent(lesEspeces[i].lesReseaux))
 			
-			-- on stop la mutation à ce stade
-			if fitnessMoyenneGlobal ~= FITNESS_LEVEL_FINI then
-				mutation(unReseau)
-			end
+			-- On stoppe la mutation à ce stade
+            if fitnessMoyenneGlobal ~= FITNESS_LEVEL_FINI then
+                mutation(unReseau)
+            end
 
 			unReseau.idEspeceParent = i
 			laNouvellePopulation[indiceNouvelleEspece] = copier(unReseau)
@@ -694,12 +710,12 @@ function nouvelleGeneration(laPopulation, lesEspeces)
 		end
 	end
 	
-	-- si une espece n'a pas fait d'enfant, je la delete
-	for i = 1, #lesEspeces, 1 do
-		if lesEspeces[i].nbEnfant == 0 then
-			lesEspeces[i] = nil
-		end
-	end
+	-- Si une espèce n'a pas fait d'enfant, on la supprime
+    for i = #lesEspeces, 1, -1 do
+        if lesEspeces[i].nbEnfant == 0 then
+            table.remove(lesEspeces, i)
+        end
+    end
 
 	return laNouvellePopulation
 end
